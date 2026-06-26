@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🗡️ Pichoq O'yini</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Segoe UI', sans-serif;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  h1 {
+    color: #e8d5a3;
+    font-size: 1.6rem;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    font-weight: 300;
+  }
+
+  #info-bar {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 18px;
+  }
+
+  .stat {
+    text-align: center;
+    color: #888;
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .stat span {
+    display: block;
+    font-size: 1.8rem;
+    color: #e8d5a3;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  #canvas-wrap {
+    position: relative;
+    width: 360px;
+    height: 360px;
+  }
+
+  canvas {
+    display: block;
+  }
+
+  #btn {
+    margin-top: 22px;
+    background: none;
+    border: 1.5px solid #e8d5a3;
+    color: #e8d5a3;
+    padding: 10px 36px;
+    font-size: 0.85rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .2s;
+    border-radius: 2px;
+  }
+
+  #btn:hover { background: #e8d5a3; color: #0a0a0f; }
+
+  #msg {
+    margin-top: 14px;
+    font-size: 0.9rem;
+    letter-spacing: 2px;
+    color: #e8d5a3;
+    height: 22px;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  #hint {
+    margin-top: 10px;
+    color: #444;
+    font-size: 0.72rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<h1>🗡️ Pichoq</h1>
+
+<div id="info-bar">
+  <div class="stat">Ball <span id="score">0</span></div>
+  <div class="stat">Daraja <span id="level">1</span></div>
+  <div class="stat">Pichoq <span id="knives">5</span></div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="c" width="360" height="360"></canvas>
+</div>
+
+<div id="msg">Bosing yoki SPACE</div>
+<div id="hint">Pichoqlar bir-biriga tegmasin!</div>
+<button id="btn">Boshlash</button>
+
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const W = 360, H = 360;
+const CX = W/2, CY = H/2;
+
+// --- Audio ---
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playThrow() {
+  const ac = getAudio();
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.connect(gain); gain.connect(ac.destination);
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(800, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.08);
+  gain.gain.setValueAtTime(0.18, ac.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.1);
+  osc.start(); osc.stop(ac.currentTime + 0.1);
+}
+
+function playHit() {
+  const ac = getAudio();
+  // Thud
+  const buf = ac.createBuffer(1, ac.sampleRate * 0.12, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3);
+  }
+  const src = ac.createBufferSource();
+  const gain = ac.createGain();
+  const filter = ac.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 600;
+  src.buffer = buf;
+  src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+  gain.gain.setValueAtTime(0.5, ac.currentTime);
+  src.start();
+
+  // Metal ting
+  const osc = ac.createOscillator();
+  const g2 = ac.createGain();
+  osc.connect(g2); g2.connect(ac.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(1200, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(800, ac.currentTime + 0.15);
+  g2.gain.setValueAtTime(0.12, ac.currentTime);
+  g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.2);
+  osc.start(); osc.stop(ac.currentTime + 0.2);
+}
+
+function playApple() {
+  const ac = getAudio();
+  [0, 0.06, 0.12].forEach((t, i) => {
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime([880, 1100, 1320][i], ac.currentTime + t);
+    gain.gain.setValueAtTime(0.12, ac.currentTime + t);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + 0.15);
+    osc.start(ac.currentTime + t);
+    osc.stop(ac.currentTime + t + 0.15);
+  });
+}
+
+function playDead() {
+  const ac = getAudio();
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.connect(gain); gain.connect(ac.destination);
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(400, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.6);
+  gain.gain.setValueAtTime(0.25, ac.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+  osc.start(); osc.stop(ac.currentTime + 0.6);
+}
+
+function playLevelUp() {
+  const ac = getAudio();
+  [0, 0.1, 0.2, 0.32].forEach((t, i) => {
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime([523, 659, 784, 1047][i], ac.currentTime + t);
+    gain.gain.setValueAtTime(0.15, ac.currentTime + t);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + 0.18);
+    osc.start(ac.currentTime + t);
+    osc.stop(ac.currentTime + t + 0.18);
+  });
+}
+
+// --- State ---
+let state = 'idle';   // idle | playing | dead | levelup
+let score = 0;
+let level = 1;
+let knivesLeft = 5;
+
+// Log
+const logScore  = () => document.getElementById('score').textContent  = score;
+const logLevel  = () => document.getElementById('level').textContent  = level;
+const logKnives = () => document.getElementById('knives').textContent = knivesLeft;
+const logMsg    = t  => document.getElementById('msg').textContent    = t;
+
+// --- Circle (log) ---
+const LOG_R = 58;
+let logAngle = 0;
+let logSpeed = 0.012;
+
+// --- Stuck knives on log ---
+let stuckKnives = [];
+
+// --- Flying knife ---
+let flyingKnife = null;
+const KNIFE_START_Y = 300;
+const KNIFE_SPEED   = 10;
+
+// --- Apples on log ---
+let apples = [];
+
+function levelConfig() {
+  return {
+    speed:      0.010 + level * 0.006,
+    knivesGiven: 5 + level,
+    appleCount:  Math.min(level, 4),
+  };
+}
+
+function startLevel() {
+  const cfg = levelConfig();
+  logSpeed   = cfg.speed * (Math.random() < 0.5 ? 1 : -1);
+  knivesLeft = cfg.knivesGiven;
+  stuckKnives = [];
+  flyingKnife  = null;
+
+  // Place apples evenly
+  apples = [];
+  for (let i = 0; i < cfg.appleCount; i++) {
+    apples.push({ angle: (Math.PI * 2 / cfg.appleCount) * i, collected: false });
+  }
+
+  logMsg('Bosing yoki SPACE!');
+  logKnives();
+  state = 'playing';
+}
+
+function resetGame() {
+  score = 0; level = 1;
+  logScore(); logLevel();
+  startLevel();
+}
+
+// --- Draw helpers ---
+function drawLog() {
+  // Wood circle
+  const grad = ctx.createRadialGradient(CX-10, CY-10, 8, CX, CY, LOG_R);
+  grad.addColorStop(0, '#7a4f2d');
+  grad.addColorStop(1, '#3d2010');
+  ctx.beginPath();
+  ctx.arc(CX, CY, LOG_R, 0, Math.PI*2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  // Ring
+  ctx.beginPath();
+  ctx.arc(CX, CY, LOG_R, 0, Math.PI*2);
+  ctx.strokeStyle = '#5a3520';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // Inner ring
+  ctx.beginPath();
+  ctx.arc(CX, CY, LOG_R * 0.6, 0, Math.PI*2);
+  ctx.strokeStyle = '#4a2810';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function drawKnife(x, y, angle, isFlying) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  // Handle
+  ctx.fillStyle = '#c8a96e';
+  ctx.beginPath();
+  ctx.roundRect(-4, 18, 8, 26, 3);
+  ctx.fill();
+
+  // Guard
+  ctx.fillStyle = '#888';
+  ctx.fillRect(-6, 12, 12, 5);
+
+  // Blade
+  ctx.fillStyle = isFlying ? '#e8e8e8' : '#ccc';
+  ctx.beginPath();
+  ctx.moveTo(0, -38);
+  ctx.lineTo(3.5, 12);
+  ctx.lineTo(-3.5, 12);
+  ctx.closePath();
+  ctx.fill();
+
+  // Shine
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 0.8;
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(0, -35);
+  ctx.lineTo(1.5, 8);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+}
+
+function drawStuckKnife(a) {
+  // Position on log edge
+  const ex = CX + Math.cos(a) * LOG_R;
+  const ey = CY + Math.sin(a) * LOG_R;
+  // Tip points outward, blade goes into log
+  const kx = CX + Math.cos(a) * (LOG_R + 22);
+  const ky = CY + Math.sin(a) * (LOG_R + 22);
+  drawKnife(kx, ky, a + Math.PI/2, false);
+}
+
+function drawApple(a) {
+  const ax = CX + Math.cos(a) * (LOG_R - 14);
+  const ay = CY + Math.sin(a) * (LOG_R - 14);
+  ctx.save();
+  ctx.translate(ax, ay);
+
+  // Apple body
+  ctx.beginPath();
+  ctx.arc(0, 0, 10, 0, Math.PI*2);
+  ctx.fillStyle = '#e03030';
+  ctx.fill();
+
+  // Shine
+  ctx.beginPath();
+  ctx.arc(-3, -3, 3.5, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fill();
+
+  // Stem
+  ctx.strokeStyle = '#5a3010';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.lineTo(2, -15);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawFlyingKnife() {
+  if (!flyingKnife) return;
+  drawKnife(flyingKnife.x, flyingKnife.y, 0, true);
+}
+
+function drawReadyKnife() {
+  if (flyingKnife) return;
+  if (knivesLeft <= 0) return;
+  // Draw knife at bottom ready to throw
+  drawKnife(CX, KNIFE_START_Y, 0, false);
+}
+
+// --- Collision ---
+function angleDiff(a, b) {
+  let d = Math.abs(a - b) % (Math.PI*2);
+  return d > Math.PI ? Math.PI*2 - d : d;
+}
+
+function checkCollision(newAngle) {
+  for (const k of stuckKnives) {
+    if (angleDiff(newAngle, k) < 0.28) return true;
+  }
+  return false;
+}
+
+function checkApple(newAngle) {
+  for (const ap of apples) {
+    if (!ap.collected && angleDiff(newAngle, ap.angle) < 0.3) {
+      ap.collected = true;
+      score += 5;
+      logScore();
+      showFloating('+5 🍎');
+      playApple();
+    }
+  }
+}
+
+// Floating text
+let floats = [];
+function showFloating(txt) {
+  floats.push({ txt, x: CX, y: CY - LOG_R - 20, life: 60 });
+}
+function drawFloats() {
+  floats = floats.filter(f => f.life > 0);
+  for (const f of floats) {
+    ctx.globalAlpha = f.life / 60;
+    ctx.fillStyle = '#f4c542';
+    ctx.font = 'bold 16px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(f.txt, f.x, f.y);
+    f.y -= 0.8;
+    f.life--;
+  }
+  ctx.globalAlpha = 1;
+}
+
+// --- Throw ---
+function throwKnife() {
+  if (state !== 'playing') return;
+  if (flyingKnife) return;
+  if (knivesLeft <= 0) return;
+
+  knivesLeft--;
+  logKnives();
+  flyingKnife = { x: CX, y: KNIFE_START_Y };
+  playThrow();
+}
+
+// --- Game loop ---
+function update() {
+  if (state !== 'playing') return;
+
+  // Rotate log
+  logAngle += logSpeed;
+
+  // Update stuck knives angles
+  for (let i = 0; i < stuckKnives.length; i++) {
+    stuckKnives[i] += logSpeed;
+  }
+
+  // Update apples
+  for (const ap of apples) {
+    ap.angle += logSpeed;
+  }
+
+  // Move flying knife
+  if (flyingKnife) {
+    flyingKnife.y -= KNIFE_SPEED;
+
+    const dy = flyingKnife.y - CY;
+    const dx = flyingKnife.x - CX;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    if (dist <= LOG_R + 2) {
+      // Hit the log — find angle
+      const hitAngle = Math.atan2(flyingKnife.y - CY, flyingKnife.x - CX);
+
+      if (checkCollision(hitAngle)) {
+        // Hit another knife
+        state = 'dead';
+        logMsg('💀 XATO! Pichoqqa tegdi!');
+        playDead();
+        return;
+      }
+
+      // Check apple
+      checkApple(hitAngle);
+
+      stuckKnives.push(hitAngle);
+      score++;
+      logScore();
+      flyingKnife = null;
+      playHit();
+
+      // Level up?
+      if (knivesLeft === 0) {
+        const allApples = apples.every(a => a.collected);
+        if (allApples || apples.length === 0) {
+          state = 'levelup';
+          level++;
+          logLevel();
+          logMsg(`🎉 DARAJA ${level}!`);
+          playLevelUp();
+          setTimeout(() => startLevel(), 1500);
+        } else {
+          state = 'dead';
+          logMsg('Olma qoldi! Qaytadan boshlang.');
+          playDead();
+        }
+      }
+    }
+
+    // Out of bounds
+    if (flyingKnife && flyingKnife.y < -20) {
+      flyingKnife = null;
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // BG glow
+  const bgGrad = ctx.createRadialGradient(CX, CY, 20, CX, CY, 180);
+  bgGrad.addColorStop(0, 'rgba(90,50,20,0.15)');
+  bgGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  drawLog();
+
+  // Stuck knives
+  for (const a of stuckKnives) drawStuckKnife(a);
+
+  // Apples
+  for (const ap of apples) {
+    if (!ap.collected) drawApple(ap.angle);
+  }
+
+  drawFlyingKnife();
+  drawReadyKnife();
+  drawFloats();
+
+  // Dead overlay
+  if (state === 'dead') {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#e03030';
+    ctx.font = 'bold 28px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('💀 GAME OVER', CX, CY);
+    ctx.fillStyle = '#e8d5a3';
+    ctx.font = '14px Segoe UI';
+    ctx.fillText(`Ball: ${score}`, CX, CY + 32);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// --- Input ---
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state === 'idle' || state === 'dead') { resetGame(); return; }
+    throwKnife();
+  }
+});
+
+c.addEventListener('click', () => {
+  if (state === 'idle' || state === 'dead') { resetGame(); return; }
+  throwKnife();
+});
+
+document.getElementById('btn').addEventListener('click', () => {
+  resetGame();
+});
+
+// Start loop
+loop();
+</script>
+</body>
+</html>
